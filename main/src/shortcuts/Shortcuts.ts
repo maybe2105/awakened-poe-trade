@@ -345,25 +345,6 @@ export class Shortcuts {
                 });
               })
               .catch(() => {});
-          } else if (entry.action.type === "use-orb-stash") {
-            const { action } = entry;
-            const options = {
-              orbType: action.orbType,
-              skipPattern: action.skipPattern
-                ? new RegExp(action.skipPattern)
-                : undefined,
-              maxAttempts: action.maxAttempts,
-              delayBetweenItems: action.delayBetweenItems,
-              delayBetweenClicks: action.delayBetweenClicks,
-              stashGrid: action.stashGrid,
-              orbPosition: action.orbPosition || { x: 100, y: 100 }, // Default position
-            };
-            useOrbOnStashItemsWithOrbSelection(
-              options,
-              this.clipboard,
-              this.overlay,
-              this.ocrWorker
-            );
           } else if (entry.action.type === "orb-process-mode") {
             // F10 - Process based on current mode (stash or single item)
             if (this.orbUsageConfig.stashMode) {
@@ -387,8 +368,9 @@ export class Shortcuts {
               console.log("F10: Processing item at cursor (single item mode)");
               this.updateOrbUsageStatus(true, 'single');
               const options = {
-                orbType: "chaos",
-                useOrb: true
+                useOrb: true,
+                maxAttempts: this.orbUsageConfig.maxAttempts,
+                delayBetweenItems: this.orbUsageConfig.delayBetweenItems,
               };
               useOrbOnMouse(options, this.ocrWorker, this.overlay)
                 .catch(error => console.error("Error during cursor processing:", error))

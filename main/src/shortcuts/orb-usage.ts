@@ -1,421 +1,448 @@
 import { uIOhook, UiohookKey as Key } from "uiohook-napi";
 import { mouse, Point } from "@nut-tree-fork/nut-js";
-import type { HostClipboard } from "./HostClipboard";
-import type { OverlayWindow } from "../windowing/OverlayWindow";
+import { HostClipboard } from "./HostClipboard";
+import { OverlayWindow } from "../windowing/OverlayWindow";
+import type { OcrWorker } from "../vision/link-main";
 
-export interface OrbUsageOptions {
-  orbType: "alteration" | "chaos";
-  skipPattern?: RegExp;
+const MOUSE_TIMEOUT = 200;
+
+
+const STASH = {
+  start: {
+    x: 58, y: 200
+  },
+  end: {
+    x: 828, y: 975
+  },
+  gridSize: 70,
+}
+
+// Enhanced stopping mechanism
+export const FLAG = { 
+  stop: 0,
+  shiftPressed: false,
+  escPressed: false,
+  stashBounds: {
+    minX: STASH.start.x - 200, // 200px buffer around stash
+    maxX: STASH.end.x + 200,
+    minY: STASH.start.y - 200, 
+    maxY: STASH.end.y + 200
+  },
+  monitorMouseMovement: false, // Only start monitoring after first item
+  processedPositions: new Map<string, { isMatched: boolean, isEmpty?: boolean, processed: boolean }>() // Track processed positions
+};
+
+// Helper function to create position key
+function getPositionKey(row: number, col: number): string {
+  return `${row},${col}`;
+}
+
+// Check if position should be skipped
+function shouldSkipPosition(row: number, col: number): boolean {
+  const key = getPositionKey(row, col);
+  const positionData = FLAG.processedPositions.get(key);
+  return positionData?.isMatched === true || positionData?.isEmpty === true; // Skip if already processed and matched
+}
+
+// Record position result
+function recordPositionResult(row: number, col: number, result: ItemProcessResult) {
+  const key = getPositionKey(row, col);
+  FLAG.processedPositions.set(key, {
+    isMatched: result.isMatched,
+    isEmpty: result.isEmpty,
+    processed: result.processed
+  });
+}
+
+// Enhanced stop checking function
+async function shouldStop(): Promise<boolean> {
+  if (FLAG.stop === 1) return true;
+  if (FLAG.escPressed) return true;
+  if (!FLAG.shiftPressed) return true; // Stop if shift is released
+  
+  // Stop if mouse moved outside stash area (only if we're monitoring)
+  if (FLAG.monitorMouseMovement) {
+    try {
+      const currentPos = await mouse.getPosition();
+      if (currentPos.x < FLAG.stashBounds.minX || 
+          currentPos.x > FLAG.stashBounds.maxX ||
+          currentPos.y < FLAG.stashBounds.minY || 
+          currentPos.y > FLAG.stashBounds.maxY) {
+        console.log("Stopping: Mouse moved outside stash area");
+        return true;
+      }
+    } catch (error) {
+      // If we can't get mouse position, don't stop for this reason
+    }
+  }
+  
+  return false;
+}
+
+// Initialize stopping mechanisms
+async function initializeStopMechanisms() {
+  FLAG.stop = 0;
+  FLAG.escPressed = false;
+  FLAG.shiftPressed = true; // Assume shift is pressed when starting
+  FLAG.monitorMouseMovement = false; // Start monitoring after first item
+  
+  // Listen for key events
+  const keyListener = (e: any) => {
+    if (e.keycode === Key.Shift) {
+      FLAG.shiftPressed = false;
+      console.log("Stopping: Shift key released");
+    } else if (e.keycode === Key.Escape) {
+      FLAG.escPressed = true;
+      console.log("Stopping: ESC key pressed");
+    }
+  };
+  
+  uIOhook.on('keyup', keyListener);
+  
+  // Return cleanup function
+  return () => {
+    uIOhook.removeListener('keyup', keyListener);
+  };
+}
+
+// Clean up function
+function cleanupStopMechanisms() {
+  FLAG.stop = 0;
+  FLAG.shiftPressed = false;
+  FLAG.escPressed = false;
+  FLAG.monitorMouseMovement = false;
+  FLAG.processedPositions.clear(); // Clear position tracking
+  uIOhook.removeAllListeners('keyup');
+}
+
+interface OrbUsageOptions {
+  orbType: string;
+  skipPattern?: string | RegExp;
   maxAttempts?: number;
-  delayBetweenAttempts?: number;
   delayBetweenItems?: number;
   delayBetweenClicks?: number;
-  stashGrid?: {
-    startX: number;
-    startY: number;
-    width: number;
-    height: number;
-    itemSize: number;
-  };
+  stashGrid?: { width: number; height: number };
 }
 
-export interface StashItemPosition {
-  x: number;
-  y: number;
-  row: number;
-  col: number;
+interface ItemProcessResult {
+  position: { x: number; y: number };
+  isMatched: boolean;
+  averageColor: { r: number; g: number; b: number };
+  processed: boolean;
+  error?: string;
+  isEmpty: boolean;
 }
 
-export function useOrbOnStashItems(
-  options: OrbUsageOptions,
-  clipboard: HostClipboard,
-  overlay: OverlayWindow
-) {
+interface ProcessOptions {
+  orbType?: string;
+  skipPattern?: string | RegExp;
+  delayBetweenClicks?: number;
+  delayBetweenItems?: number;
+  mouseTimeout?: number;
+  useOrb?: boolean;
+  maxAttempts?: number;
+  itemGrid?: { width: number; height: number };
+}
+
+/**
+ * Core function: Process a single item at given coordinates
+ * This is the base function that all other processing functions use
+ */
+export async function processItem(
+  x: number,
+  y: number,
+  ocrWorker: OcrWorker,
+  overlay: OverlayWindow,
+  options: ProcessOptions = {},
+  screenshot?: any // Optional screenshot parameter
+): Promise<ItemProcessResult> {
   const {
-    orbType,
-    skipPattern,
-    maxAttempts = 100,
-    delayBetweenItems = 500,
+    orbType = "unknown",
     delayBetweenClicks = 100,
-    stashGrid,
+    mouseTimeout = MOUSE_TIMEOUT,
+    useOrb = false
   } = options;
 
-  let attempts = 0;
-  let isRunning = true;
-
-  // Default stash grid (12x12 grid, adjust based on your stash size)
-  const grid = stashGrid || {
-    startX: 100, // Adjust based on your stash position
-    startY: 100, // Adjust based on your stash position
-    width: 12,
-    height: 12,
-    itemSize: 40, // Adjust based on your item size
+  const result: ItemProcessResult = {
+    position: { x, y },
+    isMatched: false,
+    averageColor: { r: 0, g: 0, b: 0 },
+    processed: false,
+    isEmpty: false
   };
 
-  const processStashItem = async (row: number, col: number) => {
-    if (!isRunning || attempts >= maxAttempts) {
-      if (attempts >= maxAttempts) {
-        console.log(
-          `Max attempts (${maxAttempts}) reached for ${orbType} orb usage`
-        );
-      }
-      return;
+  try {
+    console.log(`\n(${Math.round((y - STASH.start.y) / STASH.gridSize)}, ${Math.round((x - STASH.start.x) / STASH.gridSize)})`);
+
+    // Move mouse to item
+    await mouse.move([new Point(x, y)]);
+    await new Promise(resolve => setTimeout(resolve, mouseTimeout));
+
+    // Use provided screenshot or capture new one
+    const imageData = screenshot || overlay.screenshot();
+    const colorResult = await ocrWorker.readItemColors(imageData, x, y);
+    
+    result.isMatched = colorResult.isMatched;
+    result.averageColor = colorResult.averageColor;
+    result.isEmpty = colorResult.isEmpty;
+    // console.log(`Item: ${colorResult.isMatched ? 'COLORED' : 'GREY'}`);
+
+    // Check skip pattern
+    // const shouldSkip = shouldSkipItem(colorResult.isMatched, skipPattern);
+    
+    if (result.isMatched) {
+      console.log('Skipping item - matches skip pattern');
+      return result;
     }
 
-    attempts++;
-
-    // Calculate item position in stash
-    const itemX = grid.startX + col * grid.itemSize + grid.itemSize / 2;
-    const itemY = grid.startY + row * grid.itemSize + grid.itemSize / 2;
-
-    try {
-      // Move mouse to item using nut-js
-      await mouse.move([new Point(itemX, itemY)]);
-
-      // Wait a bit for the item tooltip to appear
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      // Copy item text to check if it matches pattern
-      if (skipPattern) {
-        try {
-          const itemText = await clipboard.readItemText();
-          if (skipPattern.test(itemText)) {
-            console.log(
-              `Item at (${row}, ${col}) matches pattern, skipping...`
-            );
-            // Move to next item
-            setTimeout(() => processNextItem(row, col), delayBetweenItems);
-            return;
-          }
-        } catch (error) {
-          console.log("Failed to read item text for pattern check:", error);
-        }
-      }
-
-      // Item doesn't match pattern, use orb on it
-      console.log(`Using ${orbType} orb on item at (${row}, ${col})`);
-
-      // Click to use orb (Shift should already be held)
-      await mouse.leftClick();
-
-      // Wait between clicks
-      await new Promise((resolve) => setTimeout(resolve, delayBetweenClicks));
-
-      // Move to next item
-      setTimeout(() => processNextItem(row, col), delayBetweenItems);
-    } catch (error) {
-      console.log("Error processing stash item:", error);
-      // Continue to next item even if there's an error
-      setTimeout(() => processNextItem(row, col), delayBetweenItems);
-    }
-  };
-
-  const processNextItem = (currentRow: number, currentCol: number) => {
-    // Move to next item in grid
-    let nextRow = currentRow;
-    let nextCol = currentCol + 1;
-
-    if (nextCol >= grid.width) {
-      nextCol = 0;
-      nextRow++;
+    // Use orb if enabled
+    if (useOrb) {
+      // console.log(`Using ${orbType} orb`);
+      await mouse.leftClick(); // Keep your commented out click
+      await new Promise(resolve => setTimeout(resolve, delayBetweenClicks));
+      result.processed = true;
     }
 
-    if (nextRow >= grid.height) {
-      // Finished all items in grid
-      console.log("Finished processing all items in stash grid");
-      isRunning = false;
-      return;
-    }
+    result.processed = true;
 
-    processStashItem(nextRow, nextCol);
-  };
+    return result;
 
-  const startOrbProcess = async () => {
-    overlay.assertGameActive();
+  } catch (error) {
+    result.error = `Error: ${error}`;
+    console.log(result.error);
+  }
 
-    // First, click on the orb to select it
-    console.log(`Selecting ${orbType} orb...`);
-    // You'll need to provide the orb position or implement orb selection
-    // For now, assuming orb is already selected or in a known position
-
-    // Hold Shift for multiple uses
-    console.log("Holding Shift for multiple orb usage...");
-    uIOhook.keyToggle(Key.Shift, "down");
-
-    // Start processing items from the beginning
-    processStashItem(0, 0);
-  };
-
-  startOrbProcess();
-
-  // Return a function to stop the process
-  return () => {
-    isRunning = false;
-    uIOhook.keyToggle(Key.Shift, "up"); // Release Shift
-  };
+  return result;
 }
 
-export function useOrbOnStashItemsWithOrbSelection(
+
+/**
+ * Process item at current mouse cursor position
+ */
+export async function processItemAtCursor(
+  ocrWorker: OcrWorker,
+  overlay: OverlayWindow,
+  options: ProcessOptions = {}
+): Promise<ItemProcessResult> {
+  overlay.assertGameActive();
+  
+  // Initialize stopping mechanisms for single item
+  const cleanup = await initializeStopMechanisms();
+  
+  try {
+    const currentPos = await mouse.getPosition();
+    // No screenshot parameter - will capture its own
+    return await processItem(currentPos.x, currentPos.y, ocrWorker, overlay, options);
+  } finally {
+    cleanup();
+    cleanupStopMechanisms();
+  }
+}
+
+/**
+ * Process all items in stash using grid pattern - SIMPLIFIED ROUND-BASED VERSION
+ */
+export async function processStashItems(
+  ocrWorker: OcrWorker,
+  overlay: OverlayWindow,
+  options: ProcessOptions & {
+    stashGrid?: { width: number; height: number };
+    onItemProcessed?: (result: ItemProcessResult, row: number, col: number, round: number) => void;
+    onRoundComplete?: (round: number) => void;
+    onComplete?: (totalProcessed: number) => void;
+    delayBetweenRounds?: number;
+  } = {}
+): Promise<ItemProcessResult[]> {
+  const {
+    maxAttempts = 2, // Number of rounds to process the full grid
+    delayBetweenItems = 150,
+    delayBetweenRounds = 300,
+    stashGrid = { width: 3, height: 12 },
+    itemGrid = { width: 1, height: 1 },
+    onItemProcessed,
+    onRoundComplete,
+    onComplete
+  } = options;
+
+  overlay.assertGameActive();
+  
+  // Initialize enhanced stopping mechanisms
+  const cleanup = await initializeStopMechanisms();
+  uIOhook.keyToggle(Key.Shift, "down");
+
+  // Clear processed positions for new operation
+  FLAG.processedPositions.clear();
+  
+  const allResults: ItemProcessResult[] = [];
+  const grid = {
+    startX: STASH.start.x,
+    startY: STASH.start.y,
+    width: stashGrid.width,
+    height: stashGrid.height,
+    itemSize: STASH.gridSize,
+  };
+
+  let totalProcessed = 0;
+  let totalSkipped = 0;
+
+  console.log(`Processing stash grid: ${grid.width}x${grid.height} for ${maxAttempts} rounds`);
+
+  try {
+    // Process multiple rounds
+    for (let round = 0; round < maxAttempts && !(await shouldStop()); round++) {
+      console.log(`\n=== Starting Round ${round + 1}/${maxAttempts} ===`);
+      
+      // Capture screenshot once per round
+      // console.log(`Capturing screenshot for round ${round + 1}...`);
+      const screenshot = overlay.screenshot();
+      
+      let roundProcessed = 0;
+      let roundSkipped = 0;
+      
+      // Process full grid for this round
+      for (let col = 0; col < grid.width && !(await shouldStop()); col += itemGrid.width) {
+        for (let row = 0; row < grid.height && !(await shouldStop()); row += itemGrid.height) {
+          
+          // Skip positions that are already matched (colored)
+          if (shouldSkipPosition(row, col)) {
+            roundSkipped++;
+            totalSkipped++;
+            continue; // Skip this position entirely
+          }
+          
+          const itemX = grid.startX + col * grid.itemSize;
+          const itemY = grid.startY + row * grid.itemSize;
+          
+          // Enable mouse movement monitoring after first few items
+          if (!FLAG.monitorMouseMovement) {
+            FLAG.monitorMouseMovement = true;
+         //   console.log("Started monitoring mouse movement outside stash area");
+          }
+          
+          // Pass the shared screenshot to avoid capturing for each item
+          const result = await processItem(itemX, itemY, ocrWorker, overlay, options, screenshot);
+          allResults.push(result);
+          
+          // Record this position's result for future rounds
+          recordPositionResult(row, col, result);
+          
+          if (result.processed) {
+            totalProcessed++;
+            roundProcessed++;
+          }
+          
+          if (onItemProcessed) {
+            onItemProcessed(result, row, col, round + 1);
+          }
+          
+          if (delayBetweenItems > 0) {
+            await new Promise(resolve => setTimeout(resolve, delayBetweenItems));
+          }
+        }
+      }
+      
+      // console.log(`Round ${round + 1}: Processed ${roundProcessed} items, Skipped ${roundSkipped} items`);
+      
+      if (onRoundComplete) {
+        onRoundComplete(round + 1);
+      }
+      
+      // Delay between rounds (except after the last round)
+      if (round < maxAttempts - 1 && !(await shouldStop()) && delayBetweenRounds > 0) {
+        // console.log(`Waiting ${delayBetweenRounds}ms before next round...`);
+        await new Promise(resolve => setTimeout(resolve, delayBetweenRounds));
+      }
+    }
+
+    // console.log(`\n=== Completed: Processed ${totalProcessed} items, Skipped ${totalSkipped} items ===`);
+    
+    if (onComplete) {
+      onComplete(totalProcessed);
+    }
+  } finally {
+    // Always cleanup, regardless of how we exit
+    cleanup();
+    cleanupStopMechanisms();
+  }
+  
+  return allResults;
+}
+
+export const cleanupOrbUsage = () => {
+  uIOhook.keyToggle(Key.Shift, "up");
+  cleanupStopMechanisms();
+}
+
+/**
+ * High-level function: Use orb on entire stash - SIMPLIFIED
+ */
+export async function useOrbOnStash(
+  orbPosition: { x: number; y: number },
+  ocrWorker: OcrWorker,
+  overlay: OverlayWindow,
+  options: ProcessOptions & {
+    stashGrid?: { width: number; height: number };
+    onItemProcessed?: (result: ItemProcessResult, row: number, col: number, round: number) => void;
+    onRoundComplete?: (round: number) => void;
+    delayBetweenRounds?: number;
+  } = {}
+): Promise<ItemProcessResult[]> {
+  // await setupOrbUsage(orbPosition, options.orbType || "unknown");
+  
+  try {
+    const results = await processStashItems(ocrWorker, overlay, {
+      ...options,
+      useOrb: true,
+      onRoundComplete: (round) => {
+       // console.log(`Round ${round}: Used orb on items`);
+        
+        if (options.onRoundComplete) {
+          options.onRoundComplete(round);
+        }
+      },
+      onComplete: () => {
+       // console.log(`Completed all rounds: Used orb ${totalProcessed} total items`);
+      }
+    });
+    return results;
+  } finally {
+    cleanupOrbUsage();
+  }
+}
+
+/**
+ * Analysis only: Check all stash items - SIMPLIFIED
+ */
+export async function analyzeStash(
+  ocrWorker: OcrWorker,
+  overlay: OverlayWindow,
+  options: { 
+    stashGrid?: { width: number; height: number };
+    maxAttempts?: number; // Number of rounds
+    delayBetweenRounds?: number;
+  } = {}
+): Promise<ItemProcessResult[]> {
+  return processStashItems(ocrWorker, overlay, { 
+    ...options, 
+    useOrb: false 
+  });
+}
+
+/**
+ * Original function - SIMPLIFIED
+ */
+export async function useOrbOnStashItemsWithOrbSelection(
   options: OrbUsageOptions & { orbPosition: { x: number; y: number } },
-  clipboard: HostClipboard,
-  overlay: OverlayWindow
+  overlay: OverlayWindow,
+  ocrWorker: OcrWorker
 ) {
-  const {
-    orbType,
-    skipPattern,
-    maxAttempts = 100,
-    delayBetweenItems = 500,
-    delayBetweenClicks = 100,
-    stashGrid,
-    orbPosition,
-  } = options;
 
-  let attempts = 0;
-  let isRunning = true;
-
-  // Default stash grid (12x12 grid, adjust based on your stash size)
-  const grid = stashGrid || {
-    startX: 100, // Adjust based on your stash position
-    startY: 100, // Adjust based on your stash position
-    width: 12,
-    height: 12,
-    itemSize: 40, // Adjust based on your item size
-  };
-
-  const processStashItem = async (row: number, col: number) => {
-    if (!isRunning || attempts >= maxAttempts) {
-      if (attempts >= maxAttempts) {
-        console.log(
-          `Max attempts (${maxAttempts}) reached for ${orbType} orb usage`
-        );
-      }
-      return;
-    }
-
-    attempts++;
-
-    // Calculate item position in stash
-    const itemX = grid.startX + col * grid.itemSize + grid.itemSize / 2;
-    const itemY = grid.startY + row * grid.itemSize + grid.itemSize / 2;
-
-    try {
-      // Move mouse to item using nut-js
-      await mouse.move([new Point(itemX, itemY)]);
-
-      // Wait a bit for the item tooltip to appear
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      // Copy item text to check if it matches pattern
-      if (skipPattern) {
-        try {
-          const itemText = await clipboard.readItemText();
-          if (skipPattern.test(itemText)) {
-            console.log(
-              `Item at (${row}, ${col}) matches pattern, skipping...`
-            );
-            // Move to next item
-            setTimeout(() => processNextItem(row, col), delayBetweenItems);
-            return;
-          }
-        } catch (error) {
-          console.log("Failed to read item text for pattern check:", error);
-        }
-      }
-
-      // Item doesn't match pattern, use orb on it
-      console.log(`Using ${orbType} orb on item at (${row}, ${col})`);
-
-      // Click to use orb (Shift should already be held)
-      await mouse.leftClick();
-
-      // Wait between clicks
-      await new Promise((resolve) => setTimeout(resolve, delayBetweenClicks));
-
-      // Move to next item
-      setTimeout(() => processNextItem(row, col), delayBetweenItems);
-    } catch (error) {
-      console.log("Error processing stash item:", error);
-      // Continue to next item even if there's an error
-      setTimeout(() => processNextItem(row, col), delayBetweenItems);
-    }
-  };
-
-  const processNextItem = (currentRow: number, currentCol: number) => {
-    // Move to next item in grid
-    let nextRow = currentRow;
-    let nextCol = currentCol + 1;
-
-    if (nextCol >= grid.width) {
-      nextCol = 0;
-      nextRow++;
-    }
-
-    if (nextRow >= grid.height) {
-      // Finished all items in grid
-      console.log("Finished processing all items in stash grid");
-      isRunning = false;
-      return;
-    }
-
-    processStashItem(nextRow, nextCol);
-  };
-
-  const startOrbProcess = async () => {
-    overlay.assertGameActive();
-
-    // First, click on the orb to select it
-    console.log(
-      `Selecting ${orbType} orb at position (${orbPosition.x}, ${orbPosition.y})...`
-    );
-    await mouse.move([new Point(orbPosition.x, orbPosition.y)]);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    await mouse.leftClick(); // Left click to select orb
-
-    // Wait a bit for orb selection
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
-    // Hold Shift for multiple uses
-    console.log("Holding Shift for multiple orb usage...");
-    uIOhook.keyToggle(Key.Shift, "down");
-
-    // Start processing items from the beginning
-    processStashItem(0, 0);
-  };
-
-  startOrbProcess();
-
-  // Return a function to stop the process
-  return () => {
-    isRunning = false;
-    uIOhook.keyToggle(Key.Shift, "up"); // Release Shift
-  };
+  // Return stop function
+  // return () => cleanupOrbUsage();
 }
 
-// Legacy function for single item usage (kept for backward compatibility)
-export function useOrbOnItem(
-  options: OrbUsageOptions,
-  clipboard: HostClipboard,
-  overlay: OverlayWindow
-) {
-  const {
-    orbType,
-    skipPattern,
-    maxAttempts = 100,
-    delayBetweenAttempts = 100,
-  } = options;
 
-  let attempts = 0;
-
-  const useOrb = async () => {
-    if (attempts >= maxAttempts) {
-      console.log(
-        `Max attempts (${maxAttempts}) reached for ${orbType} orb usage`
-      );
-      return;
-    }
-
-    attempts++;
-
-    // First, copy the current item to check if it matches our skip pattern
-    if (skipPattern) {
-      try {
-        const itemText = await clipboard.readItemText();
-        if (skipPattern.test(itemText)) {
-          console.log(
-            `Item matches desired pattern, skipping ${orbType} orb usage - item is already what you want!`
-          );
-          return; // Stop the process - item is already good
-        }
-      } catch (error) {
-        console.log("Failed to read item text for pattern check:", error);
-      }
-    }
-
-    // Use the appropriate orb only if item doesn't match the desired pattern
-    if (orbType === "alteration") {
-      // Use Orb of Alteration (Alt + Click)
-      uIOhook.keyTap(Key.Alt, [Key.Alt]);
-      uIOhook.keyTap(Key.Alt, []); // Release Alt
-    } else if (orbType === "chaos") {
-      // Use Chaos Orb (Shift + Click)
-      uIOhook.keyTap(Key.Shift, [Key.Shift]);
-      uIOhook.keyTap(Key.Shift, []); // Release Shift
-    }
-
-    // Wait before next attempt
-    setTimeout(useOrb, delayBetweenAttempts);
-  };
-
-  overlay.assertGameActive();
-  useOrb();
-}
-
-export function useOrbOnItemWithCheck(
-  options: OrbUsageOptions & { checkInterval?: number },
-  clipboard: HostClipboard,
-  overlay: OverlayWindow
-) {
-  const {
-    orbType,
-    skipPattern,
-    maxAttempts = 100,
-    delayBetweenAttempts = 100,
-    checkInterval = 500,
-  } = options;
-
-  let attempts = 0;
-  let isRunning = true;
-
-  const checkAndUseOrb = async () => {
-    if (!isRunning || attempts >= maxAttempts) {
-      if (attempts >= maxAttempts) {
-        console.log(
-          `Max attempts (${maxAttempts}) reached for ${orbType} orb usage`
-        );
-      }
-      return;
-    }
-
-    attempts++;
-
-    try {
-      // Copy the current item text
-      const itemText = await clipboard.readItemText();
-
-      // Check if item matches desired pattern - if it does, skip using orb
-      if (skipPattern && skipPattern.test(itemText)) {
-        console.log(
-          `Item matches desired pattern, stopping ${orbType} orb usage - item is already what you want!`
-        );
-        isRunning = false;
-        return; // Stop the process - item is already good
-      }
-
-      // Use the appropriate orb only if item doesn't match the desired pattern
-      if (orbType === "alteration") {
-        // Use Orb of Alteration (Alt + Click)
-        uIOhook.keyTap(Key.Alt, [Key.Alt]);
-        uIOhook.keyTap(Key.Alt, []); // Release Alt
-      } else if (orbType === "chaos") {
-        // Use Chaos Orb (Shift + Click)
-        uIOhook.keyTap(Key.Shift, [Key.Shift]);
-        uIOhook.keyTap(Key.Shift, []); // Release Shift
-      }
-
-      // Schedule next check
-      setTimeout(checkAndUseOrb, checkInterval);
-    } catch (error) {
-      console.log("Error during orb usage:", error);
-      // Continue trying even if there's an error
-      setTimeout(checkAndUseOrb, checkInterval);
-    }
-  };
-
-  overlay.assertGameActive();
-  checkAndUseOrb();
-
-  // Return a function to stop the process
-  return () => {
-    isRunning = false;
-  };
+export const useOrbOnMouse = async (options: ProcessOptions, ocrWorker: OcrWorker, overlay: OverlayWindow) => {
+  const res = await processItemAtCursor(ocrWorker, overlay, options);
+  return res;
 }

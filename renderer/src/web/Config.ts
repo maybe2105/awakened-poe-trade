@@ -311,7 +311,7 @@ function upgradeConfig (_config: Config): Config {
     const afterSettings = config.widgets.findIndex(w => w.wmType === 'settings')
     config.widgets.splice(afterSettings + 1, 0, {
       ...defaultConfig().widgets.find(w => w.wmType === 'item-search')!,
-      wmWants: 'show',
+      wmWants: 'hide',
       wmId: Math.max(0, ...config.widgets.map(_ => _.wmId)) + 1
     })
 
@@ -449,6 +449,24 @@ function getConfigForHost (): HostConfig {
     action: { type: 'toggle-overlay' },
     keepModKeys: true
   })
+
+  
+  // Add new orb usage shortcuts
+  actions.push({
+    shortcut: 'F10',
+    action: { type: 'orb-process-mode' }
+  });
+  
+  actions.push({
+    shortcut: 'Ctrl + F10', 
+    action: { type: 'orb-process-stash' }
+  });
+  
+  actions.push({
+    shortcut: 'F11',
+    action: { type: 'orb-stop' }
+  });
+  
   const itemCheck = AppConfig('item-check') as ItemCheckWidget
   if (itemCheck.wikiKey) {
     actions.push({

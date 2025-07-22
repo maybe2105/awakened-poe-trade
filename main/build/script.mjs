@@ -30,7 +30,7 @@ const mainContext = await esbuild.context({
   bundle: true,
   minify: !isDev,
   platform: 'node',
-  external: ['electron', 'uiohook-napi', 'electron-overlay-window'],
+  external: ['electron', 'electron-overlay-window', 'uiohook-napi'],
   outfile: 'dist/main.js',
   define: {
     'process.env.STATIC': (isDev) ? '"../build/icons"' : '"."',

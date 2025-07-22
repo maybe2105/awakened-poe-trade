@@ -3,6 +3,7 @@ publish:
     releaseType: "release"
 productName: "Awakened PoE Trade"
 npmRebuild: false
+includeSubNodeModules: true
 files:
   - "package.json"
   - from: "dist"

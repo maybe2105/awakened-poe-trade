@@ -7,12 +7,11 @@ import {
 } from "../../../ipc/KeyToCode";
 import { typeInChat, stashSearch } from "./text-box";
 import {
-  useOrbOnStashItemsWithOrbSelection,
   processStashItems,
   analyzeStash,
   cleanupOrbUsage,
   useOrbOnMouse,
-  FLAG
+  FLAG,
 } from "./orb-usage";
 import { WidgetAreaTracker } from "../windowing/WidgetAreaTracker";
 import { HostClipboard } from "./HostClipboard";
@@ -58,9 +57,9 @@ export class Shortcuts {
     useCustomColors: false,
     customColorThresholds: {
       matched: { saturation: 45, value: 65 },
-      unmatched: { saturation: 30, value: 36 }
+      unmatched: { saturation: 30, value: 36 },
     },
-    scanAreaSize: 58
+    scanAreaSize: 58,
   };
 
   static async create(
@@ -82,46 +81,50 @@ export class Shortcuts {
     return shortcuts;
   }
 
-  private updateOrbUsageStatus(isRunning: boolean, lastOperation: 'none' | 'single' | 'stash' | 'analyze') {
+  private updateOrbUsageStatus(
+    isRunning: boolean,
+    lastOperation: "none" | "single" | "stash" | "analyze"
+  ) {
     this.server.sendEventTo("broadcast", {
       name: "MAIN->CLIENT::orb-usage-status",
       payload: {
         isRunning,
-        lastOperation
-      }
+        lastOperation,
+      },
     });
   }
 
-  private async captureColorAtCursor(captureType: 'matched' | 'unmatched') {
+  private async captureColorAtCursor(captureType: "matched" | "unmatched") {
     try {
       // Ensure game is active
       this.overlay.assertGameActive();
-      
+
       // Get current mouse position
-      const { mouse } = await import('@nut-tree-fork/nut-js');
+      const { mouse } = await import("@nut-tree-fork/nut-js");
       const currentPos = await mouse.getPosition();
-      
+
       // Capture screenshot
       const imageData = this.overlay.screenshot();
-      
+
       // Prepare custom thresholds for analysis
-      const customThresholds = this.orbUsageConfig.useCustomColors ? 
-        this.orbUsageConfig.customColorThresholds : undefined;
-      
+      const customThresholds = this.orbUsageConfig.useCustomColors
+        ? this.orbUsageConfig.customColorThresholds
+        : undefined;
+
       // Analyze color at cursor position with the configured scan area size
       const colorResult = await this.ocrWorker.readItemColors(
-        imageData, 
-        currentPos.x, 
+        imageData,
+        currentPos.x,
         currentPos.y,
         customThresholds
       );
-      
+
       console.log(`Color capture ${captureType}:`, {
         saturation: Math.round(colorResult.saturation || 0),
         value: Math.round(colorResult.value || 0),
-        averageColor: colorResult.averageColor
+        averageColor: colorResult.averageColor,
       });
-      
+
       // Send result back to UI
       this.server.sendEventTo("broadcast", {
         name: "MAIN->CLIENT::color-capture-result",
@@ -129,10 +132,9 @@ export class Shortcuts {
           captureType,
           saturation: Math.round(colorResult.saturation || 0),
           value: Math.round(colorResult.value || 0),
-          averageColor: colorResult.averageColor
-        }
+          averageColor: colorResult.averageColor,
+        },
       });
-      
     } catch (error) {
       console.error(`Error capturing ${captureType} color:`, error);
     }
@@ -168,50 +170,52 @@ export class Shortcuts {
     });
 
     // Handle orb usage actions from the UI
-    this.server.onEventAnyClient("CLIENT->MAIN::orb-usage-action", async (e) => {
-      if (e.action === "save-config") {
-        console.log("Saving orb usage config from UI:", e.config);
-        this.orbUsageConfig = { ...e.config };
-        
-        // Update the actions array to include the orb usage shortcuts
-        
-      } else if (e.action === "start-orb-usage") {
-        console.log("Starting orb usage from UI:", e.config);
-        const options = {
-          maxAttempts: e.config.maxAttempts,
-          stashGrid: e.config.stashGrid,
-          delayBetweenItems: e.config.delayBetweenItems,
-          delayBetweenRounds: e.config.delayBetweenRounds,
-          useOrb: true,
-        };
-        
-        try {
-          await processStashItems(this.ocrWorker, this.overlay, options);
-        } catch (error) {
-          console.error("Error during orb usage:", error);
-        } finally {
+    this.server.onEventAnyClient(
+      "CLIENT->MAIN::orb-usage-action",
+      async (e) => {
+        if (e.action === "save-config") {
+          console.log("Saving orb usage config from UI:", e.config);
+          this.orbUsageConfig = { ...e.config };
+
+          // Update the actions array to include the orb usage shortcuts
+        } else if (e.action === "start-orb-usage") {
+          console.log("Starting orb usage from UI:", e.config);
+          const options = {
+            maxAttempts: e.config.maxAttempts,
+            stashGrid: e.config.stashGrid,
+            delayBetweenItems: e.config.delayBetweenItems,
+            delayBetweenRounds: e.config.delayBetweenRounds,
+            useOrb: true,
+          };
+
+          try {
+            await processStashItems(this.ocrWorker, this.overlay, options);
+          } catch (error) {
+            console.error("Error during orb usage:", error);
+          } finally {
+            cleanupOrbUsage();
+          }
+        } else if (e.action === "stop-orb-usage") {
+          console.log("Stopping orb usage from UI");
+          FLAG.stop = 1;
           cleanupOrbUsage();
-        }
-      } else if (e.action === "stop-orb-usage") {
-        console.log("Stopping orb usage from UI");
-        FLAG.stop = 1;
-        cleanupOrbUsage();
-      } else if (e.action === "analyze-stash") {
-        console.log("Starting stash analysis from UI:", e.config);
-        const options = {
-          maxAttempts: e.config.maxAttempts,
-          stashGrid: e.config.stashGrid,
-          delayBetweenItems: e.config.delayBetweenItems,
-          delayBetweenRounds: e.config.delayBetweenRounds
-        };
-        
-        try {
-          await analyzeStash(this.ocrWorker, this.overlay, options);
-        } catch (error) {
-          console.error("Error during stash analysis:", error);
+        } else if (e.action === "analyze-stash") {
+          console.log("Starting stash analysis from UI:", e.config);
+          const options = {
+            maxAttempts: e.config.maxAttempts,
+            stashGrid: e.config.stashGrid,
+            delayBetweenItems: e.config.delayBetweenItems,
+            delayBetweenRounds: e.config.delayBetweenRounds,
+          };
+
+          try {
+            await analyzeStash(this.ocrWorker, this.overlay, options);
+          } catch (error) {
+            console.error("Error during stash analysis:", error);
+          }
         }
       }
-    });
+    );
 
     uIOhook.on("keydown", (e) => {
       if (!this.logKeys) return;
@@ -239,7 +243,6 @@ export class Shortcuts {
       }
     });
   }
-
 
   updateActions(
     actions: ShortcutAction[],
@@ -407,7 +410,7 @@ export class Shortcuts {
             // F10 - Process based on current mode (stash or single item)
             if (this.orbUsageConfig.stashMode) {
               console.log("F10: Processing stash (stash mode enabled)");
-              this.updateOrbUsageStatus(true, 'stash');
+              this.updateOrbUsageStatus(true, "stash");
               const options = {
                 maxAttempts: this.orbUsageConfig.maxAttempts,
                 stashGrid: this.orbUsageConfig.stashGrid,
@@ -415,35 +418,41 @@ export class Shortcuts {
                 delayBetweenRounds: this.orbUsageConfig.delayBetweenRounds,
                 useOrb: true,
                 itemGrid: this.orbUsageConfig.itemGrid,
-                customColorThresholds: this.orbUsageConfig.useCustomColors ? 
-                  this.orbUsageConfig.customColorThresholds : undefined
+                customColorThresholds: this.orbUsageConfig.useCustomColors
+                  ? this.orbUsageConfig.customColorThresholds
+                  : undefined,
               };
               processStashItems(this.ocrWorker, this.overlay, options)
-                .catch(error => console.error("Error during stash processing:", error))
+                .catch((error) =>
+                  console.error("Error during stash processing:", error)
+                )
                 .finally(() => {
                   cleanupOrbUsage();
-                  this.updateOrbUsageStatus(false, 'stash');
+                  this.updateOrbUsageStatus(false, "stash");
                 });
             } else {
               console.log("F10: Processing item at cursor (single item mode)");
-              this.updateOrbUsageStatus(true, 'single');
+              this.updateOrbUsageStatus(true, "single");
               const options = {
                 useOrb: true,
                 maxAttempts: this.orbUsageConfig.maxAttempts,
                 delayBetweenItems: this.orbUsageConfig.delayBetweenItems,
-                customColorThresholds: this.orbUsageConfig.useCustomColors ? 
-                  this.orbUsageConfig.customColorThresholds : undefined
+                customColorThresholds: this.orbUsageConfig.useCustomColors
+                  ? this.orbUsageConfig.customColorThresholds
+                  : undefined,
               };
               useOrbOnMouse(options, this.ocrWorker, this.overlay)
-                .catch(error => console.error("Error during cursor processing:", error))
+                .catch((error) =>
+                  console.error("Error during cursor processing:", error)
+                )
                 .finally(() => {
-                  this.updateOrbUsageStatus(false, 'single');
+                  this.updateOrbUsageStatus(false, "single");
                 });
             }
           } else if (entry.action.type === "orb-process-stash") {
             // Ctrl+F10 - Always process stash regardless of mode
             console.log("Ctrl+F10: Force processing stash");
-            this.updateOrbUsageStatus(true, 'stash');
+            this.updateOrbUsageStatus(true, "stash");
             const options = {
               maxAttempts: this.orbUsageConfig.maxAttempts,
               stashGrid: this.orbUsageConfig.stashGrid,
@@ -451,14 +460,17 @@ export class Shortcuts {
               delayBetweenRounds: this.orbUsageConfig.delayBetweenRounds,
               useOrb: true,
               itemGrid: this.orbUsageConfig.itemGrid,
-              customColorThresholds: this.orbUsageConfig.useCustomColors ? 
-                this.orbUsageConfig.customColorThresholds : undefined
+              customColorThresholds: this.orbUsageConfig.useCustomColors
+                ? this.orbUsageConfig.customColorThresholds
+                : undefined,
             };
             processStashItems(this.ocrWorker, this.overlay, options)
-              .catch(error => console.error("Error during forced stash processing:", error))
+              .catch((error) =>
+                console.error("Error during forced stash processing:", error)
+              )
               .finally(() => {
                 cleanupOrbUsage();
-                this.updateOrbUsageStatus(false, 'stash');
+                this.updateOrbUsageStatus(false, "stash");
               });
           } else if (entry.action.type === "orb-stop") {
             // F11 - Stop any running orb operation
@@ -466,18 +478,20 @@ export class Shortcuts {
             FLAG.stop = 1;
             FLAG.escPressed = true; // Trigger immediate stop
             cleanupOrbUsage();
-            this.updateOrbUsageStatus(false, 'none');
+            this.updateOrbUsageStatus(false, "none");
           } else if (entry.action.type === "orb-capture-matched-color") {
             // ; - Capture color at cursor for matched items (when custom colors enabled)
             if (this.orbUsageConfig.useCustomColors) {
               console.log("Semicolon: Capturing matched item color at cursor");
-              this.captureColorAtCursor('matched');
+              this.captureColorAtCursor("matched");
             }
           } else if (entry.action.type === "orb-capture-unmatched-color") {
-            // ' - Capture color at cursor for unmatched items (when custom colors enabled)  
+            // ' - Capture color at cursor for unmatched items (when custom colors enabled)
             if (this.orbUsageConfig.useCustomColors) {
-              console.log("Apostrophe: Capturing unmatched item color at cursor");
-              this.captureColorAtCursor('unmatched');
+              console.log(
+                "Apostrophe: Capturing unmatched item color at cursor"
+              );
+              this.captureColorAtCursor("unmatched");
             }
           }
         }

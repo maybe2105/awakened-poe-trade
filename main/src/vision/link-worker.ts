@@ -14,16 +14,11 @@ const WorkerBody = {
   async init (binDir: string) {
     // Try to initialize with full OCR capability first
     try {
-      await Bindings.init(binDir) // false = try full OCR mode
-      _heistGems = await HeistGemFinder.create(binDir)
+      await Bindings.init(binDir, false) // false = try full OCR mode
+      // _heistGems = await HeistGemFinder.create(binDir)
       _itemOcr = await ItemOcrReader.create()
     } catch (error) {
-      // Fall back to color-only mode
-      try {
-        await Bindings.init(binDir) // true = colorOnlyMode
-      } catch (colorError) {
-        throw colorError
-      }
+      console.log(error)
     }
     
   },
@@ -37,7 +32,7 @@ const WorkerBody = {
       throw new Error('HeistGemFinder not available - OCR files missing. Please install OCR data files.')
     }
     await _changeLangPromise
-    return _heistGems.ocrScreenshot(screenshot)
+    return (_heistGems as HeistGemFinder).ocrScreenshot(screenshot)
   },
   async readItemColors (
     screenshot: ImageData, 

@@ -4,6 +4,7 @@ import type { OcrWorker } from "../../vision/link-main";
 import type { ProcessOptions, ItemProcessResult } from "./types";
 import { MOUSE_TIMEOUT, STASH } from "./constants";
 import { getRandomTimeout, getHumanizedPosition, easeOutBack } from "./utils";
+import { Logger } from "../../RemoteLogger";
 
 /**
  * Core function: Process a single item at given coordinates
@@ -15,7 +16,8 @@ export async function processItem(
   ocrWorker: OcrWorker,
   overlay: OverlayWindow,
   options: ProcessOptions = {},
-  screenshot?: any // Optional screenshot parameter
+  screenshot?: any, // Optional screenshot parameter
+  logger?: Logger
 ): Promise<ItemProcessResult> {
   const {
     delayBetweenClicks = 100,
@@ -38,6 +40,8 @@ export async function processItem(
         (x - STASH.start.x) / STASH.gridSize
       )})`
     );
+
+    logger?.write(`Processing item at (${x}, ${y})`);
 
     // Move mouse to item with human-like timing
     const preMoveDelay = Math.random() < 0.3 ? getRandomTimeout(50, 0.5) : 0; // 30% chance of small pre-move delay
@@ -66,24 +70,24 @@ export async function processItem(
 
     if (result.isMatched) {
       console.log("Skipping item - matches skip pattern");
+      logger?.write("Skipping item - matches skip pattern");
       return result;
     }
 
     // Use orb if enabled
-    if (useOrb) {
       // Add small random delay before click for human-like behavior
-      const preClickDelay = Math.random() < 0.4 ? getRandomTimeout(15, 0.3) : 0; // 40% chance of pre-click delay, reduced range
-      if (preClickDelay > 0) {
-        await new Promise((resolve) => setTimeout(resolve, preClickDelay));
-      }
-      console.log("Clicking item");
-
-      await mouse.leftClick();
-      await new Promise((resolve) =>
-        setTimeout(resolve, getRandomTimeout(delayBetweenClicks, 0.1))
-      );
-      result.processed = true;
+    const preClickDelay = Math.random() < 0.4 ? getRandomTimeout(15, 0.3) : 0; // 40% chance of pre-click delay, reduced range
+    if (preClickDelay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, preClickDelay));
     }
+    console.log("Clicking item");
+    logger?.write("Clicking item");
+
+    await mouse.leftClick();
+    await new Promise((resolve) =>
+      setTimeout(resolve, getRandomTimeout(delayBetweenClicks, 0.1))
+    );
+  
 
     result.processed = true;
 

@@ -70,7 +70,7 @@ export class Shortcuts {
     gameConfig: GameConfig,
     server: ServerEvents
   ) {
-    const ocrWorker = await OcrWorker.create();
+    const ocrWorker = await OcrWorker.create(logger);
     const shortcuts = new Shortcuts(
       logger,
       overlay,
@@ -135,6 +135,15 @@ export class Shortcuts {
           averageColor: colorResult.averageColor,
         },
       });
+      // save the config
+      this.orbUsageConfig = {
+        ...this.orbUsageConfig,
+        customColorThresholds: {
+          ...this.orbUsageConfig.customColorThresholds,
+          [captureType]: { saturation: colorResult.saturation, value: colorResult.value },  
+        },
+      };
+      
     } catch (error) {
       console.error(`Error capturing ${captureType} color:`, error);
     }
@@ -189,7 +198,7 @@ export class Shortcuts {
           };
 
           try {
-            await processStashItems(this.ocrWorker, this.overlay, options);
+            await processStashItems(this.ocrWorker, this.overlay, options, this.logger);
           } catch (error) {
             console.error("Error during orb usage:", error);
           } finally {
@@ -209,7 +218,7 @@ export class Shortcuts {
           };
 
           try {
-            await analyzeStash(this.ocrWorker, this.overlay, options);
+            await analyzeStash(this.ocrWorker, this.overlay, options, this.logger);
           } catch (error) {
             console.error("Error during stash analysis:", error);
           }
@@ -422,7 +431,7 @@ export class Shortcuts {
                   ? this.orbUsageConfig.customColorThresholds
                   : undefined,
               };
-              processStashItems(this.ocrWorker, this.overlay, options)
+              processStashItems(this.ocrWorker, this.overlay, options, this.logger)
                 .catch((error) =>
                   console.error("Error during stash processing:", error)
                 )
@@ -441,7 +450,7 @@ export class Shortcuts {
                   ? this.orbUsageConfig.customColorThresholds
                   : undefined,
               };
-              useOrbOnMouse(options, this.ocrWorker, this.overlay)
+              useOrbOnMouse(options, this.ocrWorker, this.overlay, this.logger)
                 .catch((error) =>
                   console.error("Error during cursor processing:", error)
                 )
@@ -464,7 +473,7 @@ export class Shortcuts {
                 ? this.orbUsageConfig.customColorThresholds
                 : undefined,
             };
-            processStashItems(this.ocrWorker, this.overlay, options)
+            processStashItems(this.ocrWorker, this.overlay, options, this.logger)
               .catch((error) =>
                 console.error("Error during forced stash processing:", error)
               )

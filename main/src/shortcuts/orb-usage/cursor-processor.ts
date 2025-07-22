@@ -6,6 +6,7 @@ import type { ProcessOptions, ItemProcessResult } from "./types";
 import { getRandomTimeout } from "./utils";
 import { initializeStopMechanisms, cleanupStopMechanisms, shouldStop, FLAG } from "./state";
 import { processItem } from "./processor";
+import { Logger } from "../../RemoteLogger";
 
 /**
  * Process item at current mouse cursor position
@@ -13,7 +14,8 @@ import { processItem } from "./processor";
 export async function processItemAtCursor(
   ocrWorker: OcrWorker,
   overlay: OverlayWindow,
-  options: ProcessOptions = {}
+  options: ProcessOptions = {},
+  logger: Logger
 ): Promise<ItemProcessResult | null> {
   overlay.assertGameActive();
   const { maxAttempts = 1, delayBetweenItems = 150 } = options;
@@ -23,7 +25,9 @@ export async function processItemAtCursor(
 
   uIOhook.keyToggle(Key.Shift, "down");
 
-  console.log("Processing item at cursor", options);
+  console.log("Processing item at cursor", {
+    customColorThreshold: options.customColorThresholds,
+  });
 
   try {
     const currentPos = await mouse.getPosition();
@@ -34,7 +38,9 @@ export async function processItemAtCursor(
         currentPos.y,
         ocrWorker,
         overlay,
-        options
+        options,
+        null, // screenshot
+        logger
       );
       if (result.isMatched) {
         return result;

@@ -11,6 +11,7 @@ import type {
 import { cleanupStopMechanisms } from "./state";
 import { processStashItems } from "./stash-processor";
 import { processItemAtCursor } from "./cursor-processor";
+import { Logger } from "../../RemoteLogger";
 
 /**
  * High-level function: Use orb on entire stash - SIMPLIFIED
@@ -19,7 +20,8 @@ export async function useOrbOnStash(
   orbPosition: { x: number; y: number },
   ocrWorker: OcrWorker,
   overlay: OverlayWindow,
-  options: UseOrbOnStashOptions = {}
+  options: UseOrbOnStashOptions = {},
+  logger: Logger
 ): Promise<ItemProcessResult[]> {
   try {
     const results = await processStashItems(ocrWorker, overlay, {
@@ -33,7 +35,7 @@ export async function useOrbOnStash(
       onComplete: () => {
         // console.log(`Completed all rounds: Used orb ${totalProcessed} total items`);
       },
-    });
+    }, logger);
     return results;
   } finally {
     cleanupOrbUsage();
@@ -46,20 +48,22 @@ export async function useOrbOnStash(
 export async function analyzeStash(
   ocrWorker: OcrWorker,
   overlay: OverlayWindow,
-  options: AnalyzeStashOptions = {}
+  options: AnalyzeStashOptions = {},
+  logger: Logger
 ): Promise<ItemProcessResult[]> {
   return processStashItems(ocrWorker, overlay, {
     ...options,
     useOrb: false,
-  });
+  }, logger);
 }
 
 export const useOrbOnMouse = async (
   options: ProcessOptions,
   ocrWorker: OcrWorker,
-  overlay: OverlayWindow
-) => {
-  const res = await processItemAtCursor(ocrWorker, overlay, options);
+  overlay: OverlayWindow,
+  logger: Logger
+) => {  
+  const res = await processItemAtCursor(ocrWorker, overlay, options, logger);
   return res;
 };
 

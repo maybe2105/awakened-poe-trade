@@ -17,6 +17,7 @@ import {
 } from "./state";
 import { processItem } from "./processor";
 import { uIOhook, UiohookKey as Key } from "uiohook-napi";
+import { Logger } from "../../RemoteLogger";
 
 /**
  * Process all items in stash using grid pattern - SIMPLIFIED ROUND-BASED VERSION
@@ -24,7 +25,8 @@ import { uIOhook, UiohookKey as Key } from "uiohook-napi";
 export async function processStashItems(
   ocrWorker: OcrWorker,
   overlay: OverlayWindow,
-  options: ProcessStashOptions = {}
+  options: ProcessStashOptions = {},
+  logger: Logger
 ): Promise<ItemProcessResult[]> {
   
   const {
@@ -107,7 +109,8 @@ export async function processStashItems(
             ocrWorker,
             overlay,
             options,
-            screenshot
+            screenshot,
+            logger
           );
           allResults.push(result);
 

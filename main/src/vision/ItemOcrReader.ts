@@ -14,6 +14,19 @@ interface ItemColorResult {
   value: number // HSV value/brightness (0-255)
 }
 
+function colorDistance(a: { r: number, g: number, b: number }, b: { r: number, g: number, b: number }) {
+  return Math.sqrt(
+    Math.pow(a.r - b.r, 2) +
+    Math.pow(a.g - b.g, 2) +
+    Math.pow(a.b - b.b, 2)
+  );
+}
+
+function svDistance(s1: number, v1: number, s2: number, v2: number) {
+  return Math.sqrt(Math.pow(s1 - s2, 2) + Math.pow(v1 - v2, 2));
+}
+
+
 export class ItemOcrReader {
   private constructor() {}
 
@@ -96,24 +109,29 @@ export class ItemOcrReader {
       if (customThresholds) {
         // When using custom thresholds, determine if item is matched or unmatched
         // based on proximity to either threshold set
-        const matchedThreshold = customThresholds.matched;
-        const unmatchedThreshold = customThresholds.unmatched;
+        const matchedColor = customThresholds.matched;
+        const unmatchedColor = customThresholds.unmatched;
         
-        // Calculate distance to matched threshold
-        const matchedDistance = Math.sqrt(
-          Math.pow(saturation - matchedThreshold.saturation, 2) + 
-          Math.pow(value - matchedThreshold.value, 2)
+        const svDistanceMatched = svDistance(
+          saturation, value,
+          matchedColor.saturation, matchedColor.value
         );
         
-        // Calculate distance to unmatched threshold  
-        const unmatchedDistance = Math.sqrt(
-          Math.pow(saturation - unmatchedThreshold.saturation, 2) + 
-          Math.pow(value - unmatchedThreshold.value, 2)
+        const svDistanceUnmatched = svDistance(
+          saturation, value,
+          unmatchedColor.saturation, unmatchedColor.value
         );
         
-        // Item is considered matched if it's closer to matched threshold
-        isMatched = matchedDistance < unmatchedDistance;
-        matchConfidence = isMatched ? (1 - matchedDistance / 100) : (unmatchedDistance / 100);
+        // Compare which one it's closer to
+        isMatched = svDistanceMatched < svDistanceUnmatched;
+        
+        // Confidence is normalized based on proximity
+        const totalDistance = svDistanceMatched + svDistanceUnmatched;
+        matchConfidence = totalDistance > 0
+          ? 1 - (isMatched ? svDistanceMatched : svDistanceUnmatched) / totalDistance
+          : 0.5; // exactly between thresholds
+        
+        
       } else {
         // Default hardcoded thresholds - rule of thumb from observation:
         // - Grey items: saturation < 30, value < 36

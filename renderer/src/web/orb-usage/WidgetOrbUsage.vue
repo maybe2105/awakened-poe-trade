@@ -44,8 +44,8 @@
             Ctrl+F10: Force Stash Process<br/>
             F11: Stop Operation<br/>
             <span v-if="config.useCustomColors" class="text-blue-300">
-              ; (semicolon): Analyze matched item color at cursor<br/>
-              ' (apostrophe): Analyze unmatched item color at cursor
+              Ctrl J: Analyze matched item color at cursor<br/>
+              Alt J: Analyze unmatched item color at cursor
             </span>
           </div>
         </div>

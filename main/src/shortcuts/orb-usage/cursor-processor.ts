@@ -4,7 +4,7 @@ import { OverlayWindow } from "../../windowing/OverlayWindow";
 import type { OcrWorker } from "../../vision/link-main";
 import type { ProcessOptions, ItemProcessResult } from "./types";
 import { getRandomTimeout } from "./utils";
-import { initializeStopMechanisms, cleanupStopMechanisms } from "./state";
+import { initializeStopMechanisms, cleanupStopMechanisms, shouldStop, FLAG } from "./state";
 import { processItem } from "./processor";
 
 /**
@@ -28,7 +28,7 @@ export async function processItemAtCursor(
   try {
     const currentPos = await mouse.getPosition();
     // No screenshot parameter - will capture its own
-    for (let i = 0; i < maxAttempts; i++) {
+    for (let i = 0; i < maxAttempts && !(await shouldStop()); i++) {
       const result = await processItem(
         currentPos.x,
         currentPos.y,

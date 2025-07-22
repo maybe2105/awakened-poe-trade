@@ -13,15 +13,16 @@ export function getRandomTimeout(
 export function getHumanizedPosition(
   baseX: number,
   baseY: number,
-  itemSize: number = 58
+  randomSquareSize: number = 36
 ): Point {
-  // Randomize position within the entire item area (58x58 rectangle)
-  const randomX = baseX + Math.floor(Math.random() * itemSize);
-  const randomY = baseY + Math.floor(Math.random() * itemSize);
+  const halfSize = randomSquareSize / 2;
 
-  return new Point(randomX, randomY);
+  // Randomize position within the centered rectangle
+  const randomX = baseX - halfSize + Math.random() * randomSquareSize;
+  const randomY = baseY - halfSize + Math.random() * randomSquareSize;
+
+  return new Point(Math.floor(randomX), Math.floor(randomY));
 }
-
 // Helper function to create position key
 export function getPositionKey(row: number, col: number): string {
   return `${row},${col}`;

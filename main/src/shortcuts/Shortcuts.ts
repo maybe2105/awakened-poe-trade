@@ -22,6 +22,7 @@ import type { OverlayWindow } from "../windowing/OverlayWindow";
 import type { GameWindow } from "../windowing/GameWindow";
 import type { GameConfig } from "../host-files/GameConfig";
 import type { ServerEvents } from "../server";
+import { mouse } from "@nut-tree-fork/nut-js";
 
 type UiohookKeyT = keyof typeof UiohookKey;
 const UiohookToName = Object.fromEntries(
@@ -99,8 +100,7 @@ export class Shortcuts {
       // Ensure game is active
       this.overlay.assertGameActive();
 
-      // Get current mouse position
-      const { mouse } = await import("@nut-tree-fork/nut-js");
+
       const currentPos = await mouse.getPosition();
 
       // Capture screenshot

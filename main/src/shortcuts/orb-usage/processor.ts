@@ -1,4 +1,4 @@
-import { mouse, EasingFunction } from "@nut-tree-fork/nut-js";
+import { mouse } from "@nut-tree-fork/nut-js";
 import { OverlayWindow } from "../../windowing/OverlayWindow";
 import type { OcrWorker } from "../../vision/link-main";
 import type { ProcessOptions, ItemProcessResult } from "./types";
@@ -72,14 +72,15 @@ export async function processItem(
     // Use orb if enabled
     if (useOrb) {
       // Add small random delay before click for human-like behavior
-      const preClickDelay = Math.random() < 0.4 ? getRandomTimeout(30, 0.6) : 0; // 40% chance of pre-click delay
+      const preClickDelay = Math.random() < 0.4 ? getRandomTimeout(15, 0.3) : 0; // 40% chance of pre-click delay, reduced range
       if (preClickDelay > 0) {
         await new Promise((resolve) => setTimeout(resolve, preClickDelay));
       }
+      console.log("Clicking item");
 
       await mouse.leftClick();
       await new Promise((resolve) =>
-        setTimeout(resolve, getRandomTimeout(delayBetweenClicks, 0.2))
+        setTimeout(resolve, getRandomTimeout(delayBetweenClicks, 0.1))
       );
       result.processed = true;
     }

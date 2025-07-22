@@ -1,4 +1,3 @@
-import { uIOhook, UiohookKey as Key } from "uiohook-napi";
 import { OverlayWindow } from "../../windowing/OverlayWindow";
 import type { OcrWorker } from "../../vision/link-main";
 import type {
@@ -26,6 +25,7 @@ export async function processStashItems(
   overlay: OverlayWindow,
   options: ProcessStashOptions = {}
 ): Promise<ItemProcessResult[]> {
+  
   const {
     maxAttempts = 2, // Number of rounds to process the full grid
     delayBetweenItems = 150,

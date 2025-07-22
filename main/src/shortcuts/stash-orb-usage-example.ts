@@ -2,7 +2,7 @@
 // This file demonstrates how to set up shortcuts for automatic orb usage on multiple stash items
 //
 // Import the orb usage functions from the dedicated orb-usage module
-import { useOrbOnStashItemsWithOrbSelection } from "./orb-usage";
+// import { useOrbOnStashItemsWithOrbSelection } from "./orb-usage";
 import type { ShortcutAction } from "../../../ipc/types";
 
 // Example 1: Use Alteration Orbs on stash items until they have elemental resistance

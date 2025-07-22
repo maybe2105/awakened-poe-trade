@@ -1,9 +1,9 @@
-import { mouse } from "@nut-tree-fork/nut-js";
+import { mouse, EasingFunction } from "@nut-tree-fork/nut-js";
 import { OverlayWindow } from "../../windowing/OverlayWindow";
 import type { OcrWorker } from "../../vision/link-main";
 import type { ProcessOptions, ItemProcessResult } from "./types";
 import { MOUSE_TIMEOUT, STASH } from "./constants";
-import { getRandomTimeout, getHumanizedPosition } from "./utils";
+import { getRandomTimeout, getHumanizedPosition, easeOutBack } from "./utils";
 
 /**
  * Core function: Process a single item at given coordinates
@@ -44,8 +44,8 @@ export async function processItem(
     if (preMoveDelay > 0) {
       await new Promise((resolve) => setTimeout(resolve, preMoveDelay));
     }
-
-    await mouse.move([getHumanizedPosition(x, y)]);
+    // easing ease out cubic
+    await mouse.move([getHumanizedPosition(x, y)], easeOutBack);
     await new Promise((resolve) =>
       setTimeout(resolve, getRandomTimeout(mouseTimeout))
     );

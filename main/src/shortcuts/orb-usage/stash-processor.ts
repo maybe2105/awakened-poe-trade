@@ -16,6 +16,7 @@ import {
   FLAG,
 } from "./state";
 import { processItem } from "./processor";
+import { uIOhook, UiohookKey as Key } from "uiohook-napi";
 
 /**
  * Process all items in stash using grid pattern - SIMPLIFIED ROUND-BASED VERSION

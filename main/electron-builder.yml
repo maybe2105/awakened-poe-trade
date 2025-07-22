@@ -10,6 +10,9 @@ files:
     filter: ["main.js", "vision.js"]
   - from: "../renderer/dist"
     to: "."
+  - from: "dist"
+    to: "build"
+    filter: ["libnut.node"]
 extraMetadata:
   main: "main.js"
 nsis:

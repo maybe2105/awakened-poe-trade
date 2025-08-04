@@ -59,7 +59,7 @@ sleepDelay := 30
 ;    ^K::Kirac()      ; Ctrl+K
 ;    ^!K::Kirac()     ; Ctrl+Alt+K
 
-^K::Kirac()
+\::Kirac()
 
 
 
@@ -119,13 +119,36 @@ Kirac() {
                 break 2
             }
 
-            foundImage := MapOCRTextToImage(txt)
+            imageResult := MapOCRTextToImage(txt)
+
+            mechanic := imageResult[1]
+            foundImage := imageResult[2]
 
             x_imgPos := x + (gridSize * 0.3)
             y_imgPos := y + (gridSize * 0.3)
 
+
             if foundImage {
                 guiX.Add("Picture", "x" x_imgPos " y" y_imgPos " w" img_size " h" img_size, foundImage)
+                
+                ; Add green rectangle border if the found image is "Beast"
+                if (mechanic = "Einhar") {
+
+
+                    borderWidth := 2
+
+                    gridX := x - 8
+                    gridY := y - 8
+
+                    ; Top border
+                    guiX.Add("Text", "x" gridX " y" (gridY - borderWidth - 4) " w" gridSize " h" borderWidth " Background0x00FF00")
+                    ; Bottom border
+                    guiX.Add("Text", "x" gridX " y" (gridY + gridSize - 4) " w" gridSize " h" borderWidth " Background0x00FF00")
+                    ; Left border
+                    guiX.Add("Text", "x" (gridX - borderWidth) " y" (gridY - 4) " w" borderWidth " h" gridSize " Background0x00FF00")
+                    ; Right border
+                    guiX.Add("Text", "x" (gridX + gridSize) " y" (gridY - 4) " w" borderWidth " h" gridSize " Background0x00FF00")
+                }
             }
         }
         y_index++
@@ -144,9 +167,9 @@ MapOCRTextToImage(txt) {
     global imageMap
     for keyword, path in imageMap {
         if InStr(txt, keyword)
-            return path
+            return [keyword, path] ; return tuple (Array) with keyword and path
     }
-    return "" ; fallback if nothing matched
+    return ["", ""] ; fallback if nothing matched
 }
 
 KeyWaitAnyMouseOrKeyboard() {
